@@ -11,8 +11,13 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Internal port configuration for single-port deployment.
-FRONTEND_PORT="3000"
-BACKEND_PORT="8000"
+# Public port uses $PORT (provided by cloud providers like Render/Railway/Heroku), defaulting to 3000.
+FRONTEND_PORT="${PORT:-3000}"
+if [ "${FRONTEND_PORT}" = "8000" ]; then
+    BACKEND_PORT="8001"
+else
+    BACKEND_PORT="8000"
+fi
 
 # Print banner
 print_banner() {
@@ -204,23 +209,25 @@ echo ""
 info "Starting backend server on internal port ${BACKEND_PORT}..."
 cd /app/backend
 trap '' SIGTERM SIGINT SIGQUIT
-python -m uvicorn app.main:app --host 127.0.0.1 --port "${BACKEND_PORT}" --log-level "${UVICORN_LOG_LEVEL}" &
+python -m uvicorn app.main:app --host 127.0.0.1 --port "${BACKEND_PORT}" --log-level "${UVICORN_LOG_LEVEL}" > /tmp/backend.log 2>&1 &
 BACKEND_PID=$!
 trap cleanup SIGTERM SIGINT SIGQUIT
 
-# Wait for backend to be ready
+# Wait for backend to be ready (up to 120s for cloud free tiers)
 info "Waiting for backend to be ready..."
-for i in {1..30}; do
+for i in {1..120}; do
     if curl -s "http://127.0.0.1:${BACKEND_PORT}/api/v1/health" > /dev/null 2>&1; then
         status "Backend is ready (PID: $BACKEND_PID)"
         break
     fi
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
-        error "Backend process (PID: $BACKEND_PID) died during startup"
+        error "Backend process (PID: $BACKEND_PID) died during startup:"
+        cat /tmp/backend.log >&2
         exit 1
     fi
-    if [ $i -eq 30 ]; then
-        error "Backend failed to start within 30 seconds"
+    if [ $i -eq 120 ]; then
+        error "Backend failed to start within 120 seconds:"
+        cat /tmp/backend.log >&2
         exit 1
     fi
     sleep 1
@@ -234,6 +241,7 @@ cd /app/frontend
 # Next.js uses PORT environment variable
 export HOSTNAME="0.0.0.0"
 export PORT="${FRONTEND_PORT}"
+export BACKEND_ORIGIN="http://127.0.0.1:${BACKEND_PORT}"
 if [ ! -f "server.js" ]; then
     error "Missing frontend standalone server.js. Rebuild the Docker image."
     exit 1
