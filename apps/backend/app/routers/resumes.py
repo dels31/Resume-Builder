@@ -24,6 +24,7 @@ from app.ai_budget import (
     remaining_timeout,
 )
 from app.ai_limits import MAX_JOB_CHARACTERS, PromptSizeError, require_source_size
+from app.chatgpt_auth import chatgpt_is_connected
 from app.config import settings
 from app.config_cache import get_content_language
 from app.config_cache import load_config as _load_config
@@ -34,6 +35,7 @@ from app.database import (
     ResumeNotFoundError,
     db,
 )
+from app.llm import AGENT_PROVIDER, get_llm_config
 from app.pdf import PRINT_ERROR_SELECTOR, PDFRenderError, render_resume_pdf
 from app.preview import (
     PreviewBusyError,
@@ -856,6 +858,21 @@ MASTER_LIMIT_DETAIL = (
 )
 
 
+def _is_llm_configured() -> bool:
+    """Whether an LLM provider and credentials are configured to handle AI calls."""
+    try:
+        config = get_llm_config()
+        if config.provider == AGENT_PROVIDER:
+            return True
+        return bool(
+            config.api_key
+            or config.provider in ("ollama", "openai_compatible", "claude_cli")
+            or (config.provider == "chatgpt" and chatgpt_is_connected())
+        )
+    except Exception:
+        return False
+
+
 def _has_renderable_resume_data(resume: dict[str, Any]) -> bool:
     """Whether the print page can render this resume (mirrors its data lookup)."""
     if resume.get("processed_data"):
@@ -1156,36 +1173,48 @@ async def upload_resume(
         )
 
     try:
-        # Try to parse to structured JSON (optional, may fail if LLM not configured)
-        try:
-            processed_data = await parse_resume_to_json(markdown_content)
-        except (DatabaseBusyError, AIOperationDeadlineExceeded, PromptSizeError):
-            raise
-        except Exception as e:
-            logger.warning(f"Resume parsing to JSON failed for {file.filename}: {e}")
-            outcome = await db.finish_resume_processing(
-                resume["resume_id"],
-                processing_token,
-                processing_status="failed",
-            )
-            _require_processing_commit(
-                outcome,
-                deleted_detail="Resume was deleted during upload processing.",
-            )
-            resume["processing_status"] = "failed"
+        # Try to parse to structured JSON only if LLM is configured
+        if _is_llm_configured():
+            try:
+                processed_data = await parse_resume_to_json(markdown_content)
+                outcome = await db.finish_resume_processing(
+                    resume["resume_id"],
+                    processing_token,
+                    processing_status="ready",
+                    processed_data=processed_data,
+                )
+                _require_processing_commit(
+                    outcome,
+                    deleted_detail="Resume was deleted during upload processing.",
+                )
+                resume["processed_data"] = processed_data
+                resume["processing_status"] = "ready"
+            except (DatabaseBusyError, PromptSizeError):
+                raise
+            except Exception as e:
+                logger.warning(f"Resume parsing to JSON failed for {file.filename}: {e}")
+                outcome = await db.finish_resume_processing(
+                    resume["resume_id"],
+                    processing_token,
+                    processing_status="failed",
+                )
+                _require_processing_commit(
+                    outcome,
+                    deleted_detail="Resume was deleted during upload processing.",
+                )
+                resume["processing_status"] = "failed"
         else:
+            logger.info("LLM not configured; resume %s saved as raw markdown (pending setup)", file.filename)
             outcome = await db.finish_resume_processing(
                 resume["resume_id"],
                 processing_token,
-                processing_status="ready",
-                processed_data=processed_data,
+                processing_status="pending",
             )
             _require_processing_commit(
                 outcome,
                 deleted_detail="Resume was deleted during upload processing.",
             )
-            resume["processed_data"] = processed_data
-            resume["processing_status"] = "ready"
+            resume["processing_status"] = "pending"
 
         # Return accurate status to client (API-001 fix)
         return ResumeUploadResponse(

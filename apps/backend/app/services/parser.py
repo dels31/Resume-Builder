@@ -943,7 +943,7 @@ def _parse_document_sync(content: bytes, filename: str) -> str:
             _validate_doc_container(tmp_path)
         elif suffix == ".docx":
             _validate_docx_container(tmp_path)
-        md = MarkItDown()
+        md = MarkItDown(enable_plugins=False)
         result = md.convert(str(tmp_path))
         text = result.text_content
         if not isinstance(text, str):
