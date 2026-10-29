@@ -5,7 +5,9 @@ import copy
 import hashlib
 import json
 import logging
+import re
 import unicodedata
+import urllib.parse
 from collections.abc import Awaitable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,6 +69,9 @@ from app.schemas import (
     ResumeUploadResponse,
     SetDefaultMasterResponse,
     TemplateSettings,
+    TranslateContentRequest,
+    TranslateResumeRequest,
+    TranslateResumeResponse,
     UpdateCoverLetterRequest,
     UpdateOutreachMessageRequest,
     UpdateTitleRequest,
@@ -82,6 +87,8 @@ from app.services.cover_letter import (
     generate_cover_letter,
     generate_outreach_message,
     generate_resume_title,
+    translate_cover_letter,
+    translate_resume_data,
 )
 from app.services.improver import (
     MONTH_PATTERN,
@@ -2437,6 +2444,61 @@ async def update_resume_endpoint(
         ),
     )
 
+def _build_pdf_download_headers(
+    doc_type: str,
+    resume: dict[str, Any] | None,
+    resume_id: str,
+) -> dict[str, str]:
+    """Format Content-Disposition attachment header using doc_type, candidate name, and company."""
+    applicant_name: str | None = None
+    company: str | None = None
+
+    if resume:
+        processed = resume.get("processed_data")
+        if isinstance(processed, dict):
+            personal = processed.get("personal_info") or processed.get("personalInfo") or {}
+            if isinstance(personal, dict):
+                applicant_name = personal.get("name")
+        if not applicant_name and resume.get("content"):
+            try:
+                content = json.loads(resume.get("content") or "")
+                if isinstance(content, dict):
+                    personal = content.get("personal_info") or content.get("personalInfo") or {}
+                    if isinstance(personal, dict):
+                        applicant_name = personal.get("name")
+            except Exception:
+                pass
+
+        title = resume.get("title") or ""
+        if " @ " in title:
+            company = title.split(" @ ")[-1].strip()
+
+    def _clean_part(val: str | None) -> str | None:
+        if not val or not val.strip():
+            return None
+        cleaned = re.sub(r'[/\\:*?"<>|]', '-', val.strip())
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        return cleaned or None
+
+    clean_name = _clean_part(applicant_name)
+    clean_company = _clean_part(company)
+
+    if clean_name and clean_company:
+        raw_name = f"{doc_type}_{clean_name}_{clean_company}"
+    elif clean_name:
+        raw_name = f"{doc_type}_{clean_name}"
+    elif clean_company:
+        raw_name = f"{doc_type}_{clean_company}"
+    else:
+        raw_name = f"{doc_type}_{resume_id}"
+
+    filename = f"{raw_name}.pdf"
+    ascii_filename = re.sub(r'[^\x20-\x7E]', '_', filename)
+    encoded_filename = urllib.parse.quote(filename, encoding="utf-8")
+    return {
+        "Content-Disposition": f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+    }
+
 
 @router.get("/{resume_id}/pdf")
 async def download_resume_pdf(
@@ -2521,7 +2583,7 @@ async def download_resume_pdf(
     except PDFRenderError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    headers = {"Content-Disposition": f'attachment; filename="resume_{resume_id}.pdf"'}
+    headers = _build_pdf_download_headers("Curriculum Vitae", resume, resume_id)
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
@@ -2853,6 +2915,90 @@ async def generate_cover_letter_endpoint(resume_id: str) -> GenerateContentRespo
     return GenerateContentResponse(
         content=cover_letter_content,
         message="Cover letter generated successfully",
+    )
+
+
+@router.post(
+    "/{resume_id}/translate-cover-letter",
+    response_model=GenerateContentResponse,
+)
+async def translate_cover_letter_endpoint(
+    resume_id: str,
+    request: TranslateContentRequest | None = None,
+) -> GenerateContentResponse:
+    """Translate cover letter to Indonesian or requested language."""
+    resume = await db.get_resume(resume_id)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    content_to_translate = (
+        request.content if request and request.content else resume.get("cover_letter")
+    ) or ""
+    if not content_to_translate.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="No cover letter content to translate.",
+        )
+
+    target_language = (
+        request.target_language if request and request.target_language else "id"
+    )
+    try:
+        translated = await translate_cover_letter(
+            content_to_translate, target_language=target_language
+        )
+    except Exception as e:
+        logger.error(f"Cover letter translation failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to translate cover letter. Please try again.",
+        )
+
+    await db.update_resume(resume_id, {"cover_letter": translated})
+    return GenerateContentResponse(
+        content=translated,
+        message="Cover letter translated successfully",
+    )
+
+
+@router.post(
+    "/{resume_id}/translate-resume",
+    response_model=TranslateResumeResponse,
+)
+async def translate_resume_endpoint(
+    resume_id: str,
+    request: TranslateResumeRequest | None = None,
+) -> TranslateResumeResponse:
+    """Translate structured resume content to Indonesian or requested language."""
+    resume = await db.get_resume(resume_id)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    resume_data = resume.get("processed_data")
+    if not resume_data:
+        raise HTTPException(
+            status_code=400,
+            detail="Resume has no processed data to translate.",
+        )
+
+    target_language = (
+        request.target_language if request and request.target_language else "id"
+    )
+    try:
+        translated_data = await translate_resume_data(
+            resume_data, target_language=target_language
+        )
+    except Exception as e:
+        logger.error(f"Resume translation failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to translate resume. Please try again.",
+        )
+
+    await db.update_resume(resume_id, {"processed_data": translated_data})
+    return TranslateResumeResponse(
+        data=translated_data,
+        message="Resume translated successfully",
     )
 
 
@@ -3201,7 +3347,5 @@ async def download_cover_letter_pdf(
     except PDFRenderError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    headers = {
-        "Content-Disposition": f'attachment; filename="cover_letter_{resume_id}.pdf"'
-    }
+    headers = _build_pdf_download_headers("Cover Letter", resume, resume_id)
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)

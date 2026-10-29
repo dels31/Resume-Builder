@@ -60,23 +60,38 @@ function createAbortError(reason: unknown): Error {
   return error;
 }
 
+// Status codes that MUST NOT have a body per the Fetch Specification:
+// 101 Switching Protocols, 204 No Content, 205 Reset Content, 304 Not Modified
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
+
 async function bufferResponse(response: Response): Promise<Response> {
-  if (response.body === null || response.status < 200 || response.status > 599) {
+  if (
+    response.body === null ||
+    NULL_BODY_STATUSES.has(response.status) ||
+    response.status < 200 ||
+    response.status > 599
+  ) {
     return response;
   }
 
-  const body = await response.arrayBuffer();
-  const buffered = new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
-  Object.defineProperties(buffered, {
-    url: { value: response.url },
-    redirected: { value: response.redirected },
-    type: { value: response.type },
-  });
-  return buffered;
+  try {
+    const body = await response.arrayBuffer();
+    const buffered = new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+    Object.defineProperties(buffered, {
+      url: { value: response.url },
+      redirected: { value: response.redirected },
+      type: { value: response.type },
+    });
+    return buffered;
+  } catch {
+    // If Response reconstruction fails (e.g. download manager/extension interception,
+    // or null body status), safely return the original response
+    return response;
+  }
 }
 
 /**

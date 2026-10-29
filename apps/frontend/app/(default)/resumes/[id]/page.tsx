@@ -38,7 +38,7 @@ import { withLocalizedDefaultSections } from '@/lib/utils/section-helpers';
 import { isSameResumeData } from '@/lib/utils/resume-draft-storage';
 import { useAgentRefresh } from '@/hooks/use-agent-refresh';
 import { useLanguage } from '@/lib/context/language-context';
-import { downloadBlobAsFile, openUrlInNewTab, sanitizeFilename } from '@/lib/utils/download';
+import { buildResumeFilename, downloadBlobAsFile, openUrlInNewTab, sanitizeFilename } from '@/lib/utils/download';
 import { useOperationOwner } from '@/hooks/use-operation-owner';
 import { DEFAULT_TEMPLATE_SETTINGS, type TemplateSettings } from '@/lib/types/template-settings';
 
@@ -377,7 +377,11 @@ export default function ResumeViewerPage() {
     try {
       setDownloadError(null);
       const blob = await downloadResumePdf(resumeId, templateSettings, uiLanguage);
-      const filename = sanitizeFilename(resumeTitle, resumeId, 'resume');
+      const company = resumeTitle && resumeTitle.includes(' @ ')
+        ? resumeTitle.split(' @ ').pop()?.trim() || null
+        : null;
+      const userName = resumeData?.personalInfo?.name?.trim() || null;
+      const filename = buildResumeFilename(userName, company, resumeId, 'resume');
       downloadBlobAsFile(blob, filename);
       if (!isCurrentDownload(token)) return;
       setShowDownloadSuccessDialog(true);

@@ -44,6 +44,8 @@ import {
   generateCoverLetter,
   generateOutreachMessage,
   generateInterviewPrep,
+  translateCoverLetter,
+  translateResume,
   fetchJobDescription,
   updateResumeTemplateSettings,
 } from '@/lib/api/resume';
@@ -351,6 +353,8 @@ const ResumeBuilderContent = ({ agentMode = false }: ResumeBuilderProps) => {
   const [isGeneratingOutreach, setIsGeneratingOutreach] = useState(false);
   const [isGeneratingInterviewPrep, setIsGeneratingInterviewPrep] = useState(false);
   const [interviewPrepError, setInterviewPrepError] = useState<string | null>(null);
+  const [isTranslatingCoverLetter, setIsTranslatingCoverLetter] = useState(false);
+  const [isTranslatingResume, setIsTranslatingResume] = useState(false);
   const [showRegenerateDialog, setShowRegenerateDialog] = useState<
     'cover-letter' | 'outreach' | 'interview-prep' | null
   >(null);
@@ -1296,7 +1300,7 @@ const ResumeBuilderContent = ({ agentMode = false }: ResumeBuilderProps) => {
     try {
       setIsDownloading(true);
       const blob = await downloadResumePdf(resumeId, templateSettings, uiLanguage);
-      const company = getCompanyFromTitle(resumeTitle);
+      const company = jobCompany || getCompanyFromTitle(resumeTitle);
       const userName = resumeData.personalInfo?.name?.trim() || null;
       const filename = buildResumeFilename(userName, company, resumeId, 'resume');
       downloadBlobAsFile(blob, filename);
@@ -1435,10 +1439,11 @@ const ResumeBuilderContent = ({ agentMode = false }: ResumeBuilderProps) => {
         return;
       }
       const blob = await downloadCoverLetterPdf(resumeId, templateSettings.pageSize, uiLanguage);
-      const company = getCompanyFromTitle(resumeTitle);
+      const company = jobCompany || getCompanyFromTitle(resumeTitle);
       const userName = resumeData.personalInfo?.name?.trim() || null;
       const filename = buildResumeFilename(userName, company, resumeId, 'cover-letter');
       downloadBlobAsFile(blob, filename);
+      showNotification(t('builder.alerts.downloadSuccess'), 'success');
     } catch (error) {
       console.error('Failed to download cover letter:', error);
       if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
@@ -1551,6 +1556,48 @@ const ResumeBuilderContent = ({ agentMode = false }: ResumeBuilderProps) => {
       return;
     }
     doGenerateCoverLetter();
+  };
+
+  const handleTranslateCoverLetterToIndonesian = async () => {
+    if (!resumeId || isTranslatingCoverLetter || !coverLetter.trim()) return;
+    try {
+      setIsTranslatingCoverLetter(true);
+      const translated = await translateCoverLetter(resumeId, coverLetter, 'id');
+      setCoverLetter(translated);
+      attachmentValuesRef.current = {
+        ...attachmentValuesRef.current,
+        coverLetter: translated,
+      };
+      attachmentBaselinesRef.current = {
+        ...attachmentBaselinesRef.current,
+        coverLetter: translated,
+      };
+      setHasUnsavedCoverLetter(false);
+      persistAttachmentDraft();
+      showNotification('Cover Letter berhasil diterjemahkan ke Bahasa Indonesia!', 'success');
+    } catch (error) {
+      console.error('Failed to translate cover letter:', error);
+      showNotification('Gagal menerjemahkan cover letter. Silakan coba lagi.', 'danger');
+    } finally {
+      setIsTranslatingCoverLetter(false);
+    }
+  };
+
+  const handleTranslateResumeToIndonesian = async () => {
+    if (!resumeId || isTranslatingResume || loadingState !== 'loaded') return;
+    try {
+      setIsTranslatingResume(true);
+      const translated = await translateResume(resumeId, 'id');
+      setResumeData(translated);
+      setLastSavedData(translated);
+      setHasUnsavedChanges(false);
+      showNotification('Isi CV berhasil diterjemahkan ke Bahasa Indonesia!', 'success');
+    } catch (error) {
+      console.error('Failed to translate resume:', error);
+      showNotification('Gagal menerjemahkan CV. Silakan coba lagi.', 'danger');
+    } finally {
+      setIsTranslatingResume(false);
+    }
   };
 
   const doGenerateOutreach = async () => {
@@ -1773,6 +1820,22 @@ const ResumeBuilderContent = ({ agentMode = false }: ResumeBuilderProps) => {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handleTranslateResumeToIndonesian}
+                  disabled={
+                    !resumeId || isTranslatingResume || isSaving || loadingState !== 'loaded'
+                  }
+                  title="Terjemahkan seluruh isi CV ke Bahasa Indonesia"
+                >
+                  {isTranslatingResume ? (
+                    <SpinnerGap aria-hidden="true" className="animate-spin" />
+                  ) : (
+                    <span className="mr-1">🇮🇩</span>
+                  )}
+                  {isTranslatingResume ? 'Menerjemahkan...' : 'CV ke Indonesia'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleDownload}
                   disabled={!resumeId || isDownloading}
                 >
@@ -1785,6 +1848,20 @@ const ResumeBuilderContent = ({ agentMode = false }: ResumeBuilderProps) => {
             {/* Cover letter tab actions */}
             {activeTab === 'cover-letter' && coverLetter && (
               <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleTranslateCoverLetterToIndonesian}
+                  disabled={!resumeId || isTranslatingCoverLetter}
+                  title="Terjemahkan isi Cover Letter ke Bahasa Indonesia"
+                >
+                  {isTranslatingCoverLetter ? (
+                    <SpinnerGap aria-hidden="true" className="animate-spin" />
+                  ) : (
+                    <span className="mr-1">🇮🇩</span>
+                  )}
+                  {isTranslatingCoverLetter ? 'Menerjemahkan...' : 'Ke Indonesia'}
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1905,6 +1982,8 @@ const ResumeBuilderContent = ({ agentMode = false }: ResumeBuilderProps) => {
                     onChange={handleCoverLetterChange}
                     onSave={handleSaveCoverLetter}
                     isSaving={isCoverLetterSaving}
+                    onTranslate={handleTranslateCoverLetterToIndonesian}
+                    isTranslating={isTranslatingCoverLetter}
                   />
                 ) : (
                   <GeneratePrompt
@@ -2082,12 +2161,12 @@ const ResumeBuilderContent = ({ agentMode = false }: ResumeBuilderProps) => {
                   {
                     id: 'cover-letter',
                     label: t('builder.previewTabs.coverLetter'),
-                    disabled: !coverLetter,
+                    disabled: !isTailoredResume && !coverLetter,
                   },
                   {
                     id: 'outreach',
                     label: t('builder.previewTabs.outreach'),
-                    disabled: !outreachMessage,
+                    disabled: !isTailoredResume && !outreachMessage,
                   },
                   {
                     id: 'interview-prep',

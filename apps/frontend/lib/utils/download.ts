@@ -1,6 +1,7 @@
 export function downloadBlobAsFile(blob: Blob, filename: string): void {
   if (typeof document === 'undefined') return;
   if (!document.body) return;
+  if (!blob || blob.size === 0) return;
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -63,7 +64,10 @@ export function sanitizeFilename(
 
 /**
  * Build a personalized download filename for resume or cover letter PDFs.
- * Format: "{Name} - {Type} - {Company}.pdf" (falls back gracefully when data is missing)
+ * Format:
+ * - Cover Letter: "Cover Letter_{Applicant}_{Company}.pdf"
+ * - Resume: "Curriculum Vitae_{Applicant}_{Company}.pdf"
+ * Falls back gracefully when data is missing.
  */
 export function buildResumeFilename(
   name: string | null | undefined,
@@ -71,22 +75,21 @@ export function buildResumeFilename(
   fallbackId: string,
   type: 'resume' | 'cover-letter' = 'resume'
 ): string {
-  const typeLabel = type === 'resume' ? 'Resume' : 'Cover Letter';
+  const typeLabel = type === 'resume' ? 'Curriculum Vitae' : 'Cover Letter';
   const cleanName = name?.trim() || null;
   const cleanCompany = company?.trim() || null;
 
   let raw: string;
   if (cleanName && cleanCompany) {
-    raw = `${cleanName} - ${typeLabel} - ${cleanCompany}`;
+    raw = `${typeLabel}_${cleanName}_${cleanCompany}`;
   } else if (cleanName) {
-    raw = `${cleanName} - ${typeLabel}`;
+    raw = `${typeLabel}_${cleanName}`;
+  } else if (cleanCompany) {
+    raw = `${typeLabel}_${cleanCompany}`;
   } else {
-    return sanitizeFilename(
-      cleanCompany ? `${typeLabel} - ${cleanCompany}` : null,
-      fallbackId,
-      type
-    );
+    raw = `${typeLabel}_${fallbackId}`;
   }
 
   return sanitizeFilename(raw, fallbackId, type);
 }
+

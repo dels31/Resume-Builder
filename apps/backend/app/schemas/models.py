@@ -941,7 +941,7 @@ class LanguageConfigResponse(BaseModel):
 
     ui_language: str = "en"  # Interface language
     content_language: str = "en"  # Generated content language
-    supported_languages: list[str] = ["en", "es", "zh", "ja", "pt", "fr", "ko"]
+    supported_languages: list[str] = ["en", "es", "zh", "ja", "pt", "fr", "ko", "id"]
 
 
 class PromptOption(BaseModel):
@@ -1057,6 +1057,26 @@ class GenerateContentResponse(BaseModel):
     """Response for on-demand content generation."""
 
     content: str
+    message: str
+
+
+class TranslateContentRequest(BaseModel):
+    """Request to translate text content (e.g. cover letter)."""
+
+    content: str | None = None
+    target_language: str = "id"
+
+
+class TranslateResumeRequest(BaseModel):
+    """Request to translate structured resume data."""
+
+    target_language: str = "id"
+
+
+class TranslateResumeResponse(BaseModel):
+    """Response for translated resume data."""
+
+    data: dict[str, Any]
     message: str
 
 

@@ -17,6 +17,10 @@ export interface CoverLetterEditorProps {
   onSave: () => void;
   /** Whether save is in progress */
   isSaving: boolean;
+  /** Callback to translate content */
+  onTranslate?: (targetLanguage: string) => void;
+  /** Whether translation is in progress */
+  isTranslating?: boolean;
   /** Additional class names */
   className?: string;
 }
@@ -26,6 +30,8 @@ export function CoverLetterEditor({
   onChange,
   onSave,
   isSaving,
+  onTranslate,
+  isTranslating = false,
   className,
 }: CoverLetterEditorProps) {
   const { t } = useTranslations();
@@ -47,14 +53,33 @@ export function CoverLetterEditor({
         <span className="font-mono text-xs text-steel tabular-nums">
           {t('builder.contentStats.wordsChars', { wordCount, charCount })}
         </span>
-        <Button size="sm" onClick={onSave} disabled={isSaving}>
-          {isSaving ? (
-            <SpinnerGap aria-hidden="true" className="animate-spin" />
-          ) : (
-            <FloppyDisk aria-hidden="true" />
+        <div className="flex items-center gap-2">
+          {onTranslate && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onTranslate('id')}
+              disabled={isTranslating || isSaving || !content.trim()}
+              title="Terjemahkan isi Cover Letter ke Bahasa Indonesia"
+            >
+              {isTranslating ? (
+                <SpinnerGap aria-hidden="true" className="animate-spin" />
+              ) : (
+                <span className="mr-1">🇮🇩</span>
+              )}
+              {isTranslating ? 'Menerjemahkan...' : 'Ke Indonesia'}
+            </Button>
           )}
-          {isSaving ? t('common.saving') : t('common.save')}
-        </Button>
+          <Button size="sm" onClick={onSave} disabled={isSaving || isTranslating}>
+            {isSaving ? (
+              <SpinnerGap aria-hidden="true" className="animate-spin" />
+            ) : (
+              <FloppyDisk aria-hidden="true" />
+            )}
+            {isSaving ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
       </PanelHeader>
 
       {/* Editor Area */}

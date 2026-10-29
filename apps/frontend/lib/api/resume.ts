@@ -545,6 +545,40 @@ export async function generateCoverLetter(resumeId: string): Promise<string> {
   return data.content;
 }
 
+/** Translates a cover letter into target language (default: Indonesian 'id') */
+export async function translateCoverLetter(
+  resumeId: string,
+  content?: string,
+  targetLanguage: string = 'id'
+): Promise<string> {
+  const res = await apiPost(`/resumes/${encodeURIComponent(resumeId)}/translate-cover-letter`, {
+    content,
+    target_language: targetLanguage,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to translate cover letter (status ${res.status}): ${text}`);
+  }
+  const data = (await res.json()) as { content: string };
+  return data.content;
+}
+
+/** Translates structured resume fields into target language (default: Indonesian 'id') */
+export async function translateResume(
+  resumeId: string,
+  targetLanguage: string = 'id'
+): Promise<ResumeData> {
+  const res = await apiPost(`/resumes/${encodeURIComponent(resumeId)}/translate-resume`, {
+    target_language: targetLanguage,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to translate resume (status ${res.status}): ${text}`);
+  }
+  const data = (await res.json()) as { data: ResumeData };
+  return data.data;
+}
+
 /** Generates an outreach message on-demand for a tailored resume */
 export async function generateOutreachMessage(resumeId: string): Promise<string> {
   const res = await apiPost(`/resumes/${encodeURIComponent(resumeId)}/generate-outreach`, {});

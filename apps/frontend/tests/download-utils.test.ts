@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeFilename } from '@/lib/utils/download';
+import { buildResumeFilename, sanitizeFilename } from '@/lib/utils/download';
 
 describe('sanitizeFilename', () => {
   describe('Basic functionality', () => {
@@ -401,4 +401,49 @@ describe('sanitizeFilename', () => {
       expect(graphemeCount).toBeLessThanOrEqual(100);
     });
   });
+
+  describe('buildResumeFilename', () => {
+    it('formats Cover Letter as Cover Letter_Applicant_Company.pdf', () => {
+      const result = buildResumeFilename('Delly Bathoro', 'PT SAM Mining', 'test-id', 'cover-letter');
+      expect(result).toBe('Cover Letter_Delly Bathoro_PT SAM Mining.pdf');
+    });
+
+    it('formats Resume as Curriculum Vitae_Applicant_Company.pdf', () => {
+      const result = buildResumeFilename('Delly Bathoro', 'PT SAM Mining', 'test-id', 'resume');
+      expect(result).toBe('Curriculum Vitae_Delly Bathoro_PT SAM Mining.pdf');
+    });
+
+    it('handles missing company gracefully', () => {
+      expect(buildResumeFilename('Delly Bathoro', null, 'test-id', 'cover-letter')).toBe(
+        'Cover Letter_Delly Bathoro.pdf'
+      );
+      expect(buildResumeFilename('Delly Bathoro', undefined, 'test-id', 'resume')).toBe(
+        'Curriculum Vitae_Delly Bathoro.pdf'
+      );
+    });
+
+    it('handles missing applicant name gracefully', () => {
+      expect(buildResumeFilename(null, 'PT SAM Mining', 'test-id', 'cover-letter')).toBe(
+        'Cover Letter_PT SAM Mining.pdf'
+      );
+      expect(buildResumeFilename(undefined, 'PT SAM Mining', 'test-id', 'resume')).toBe(
+        'Curriculum Vitae_PT SAM Mining.pdf'
+      );
+    });
+
+    it('handles missing name and company using fallback ID', () => {
+      expect(buildResumeFilename(null, null, 'test-id-123', 'cover-letter')).toBe(
+        'Cover Letter_test-id-123.pdf'
+      );
+      expect(buildResumeFilename(undefined, undefined, 'test-id-123', 'resume')).toBe(
+        'Curriculum Vitae_test-id-123.pdf'
+      );
+    });
+
+    it('sanitizes invalid filename characters while preserving underscores', () => {
+      const result = buildResumeFilename('Jane/John Doe: Jr', 'Acme*Corp', 'test-id', 'resume');
+      expect(result).toBe('Curriculum Vitae_Jane-John Doe- Jr_Acme-Corp.pdf');
+    });
+  });
 });
+

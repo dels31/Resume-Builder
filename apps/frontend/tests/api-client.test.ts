@@ -198,5 +198,14 @@ describe('api client', () => {
         expect(requestSignal?.aborted).toBe(false);
       }
     );
+
+    it('safely handles 204 No Content responses from download managers/interceptors', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+      const response = await apiFetch('/download-interception');
+      expect(response.status).toBe(204);
+      const blob = await response.blob();
+      expect(blob.size).toBe(0);
+    });
   });
 });
+
